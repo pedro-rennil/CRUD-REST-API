@@ -22,6 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -210,6 +211,50 @@ class ProductRepositoryAdapterIT {
         // Compare with the database's own id order: java.util.UUID.compareTo is signed, PostgreSQL's is not.
         List<UUID> idsInDatabaseOrder = jdbc.queryForList("SELECT id FROM products ORDER BY id", UUID.class);
         assertThat(collected).hasSize(7).doesNotHaveDuplicates().containsExactlyElementsOf(idsInDatabaseOrder);
+    }
+
+    @Test
+    void shouldRejectRowsThatViolateBusinessRulesEvenWhenInsertedDirectlyIntoTheDatabase() {
+        assertThatThrownBy(() -> insertRow("Laptop", "0.00", 1))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("chk_products_price_positive");
+        assertThatThrownBy(() -> insertRow("Laptop", "-5.00", 1))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("chk_products_price_positive");
+        assertThatThrownBy(() -> insertRow("Laptop", "10.00", -1))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("chk_products_stock_non_negative");
+        assertThatThrownBy(() -> insertRow("   ", "10.00", 1))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("chk_products_name_not_blank");
+        assertThatThrownBy(() -> insertRow("", "10.00", 1))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("chk_products_name_not_blank");
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM products", Integer.class)).isZero();
+    }
+
+    @Test
+    void shouldRejectUpdatingAnExistingRowToAnInvalidValue() {
+        Product saved = adapter.save(product("Laptop", null, "10.00", 1));
+
+        assertThatThrownBy(() -> jdbc.update("UPDATE products SET stock_quantity = -1 WHERE id = ?", saved.getId()))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("chk_products_stock_non_negative");
+    }
+
+    @Test
+    void shouldAcceptTheSmallestValidValuesAtTheConstraintBoundaries() {
+        // stock 0 and price 0.01 are the closest valid values to the CHECK limits.
+        insertRow("A", "0.01", 0);
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM products", Integer.class)).isEqualTo(1);
+    }
+
+    private void insertRow(String name, String price, int stock) {
+        jdbc.update(
+                "INSERT INTO products (id, name, description, price, stock_quantity, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                UUID.randomUUID(), name, null, new BigDecimal(price), stock, OffsetDateTime.ofInstant(CREATED_AT, ZoneOffset.UTC));
     }
 
     private List<String> names(ProductSortField field, SortDirection direction) {

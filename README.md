@@ -233,7 +233,9 @@ demo/src/main/java/com/example/demo
 - **Domain isolated from persistence.** `Product` is an immutable class; the JPA `ProductEntity` and the
   mapping live in the infrastructure layer, so the database model can change without touching business rules.
 - **Defence in depth for validation.** Bean Validation rejects bad input at the edge with friendly messages,
-  while `Product` enforces its invariants again so no invalid object can exist inside the domain.
+  `Product` enforces its invariants again so no invalid object can exist inside the domain, and database `CHECK`
+  constraints (non-blank name, `price > 0`, `stock_quantity >= 0`) guarantee that nothing writing to the database
+  directly can store an invalid product either.
 - **Optimistic locking.** `Product` carries a `version`. Updating from stale data fails with `409 Conflict`
   rather than overwriting a concurrent change. A `null` version marks a never-persisted product, so creating
   one is a plain `INSERT` without a preliminary `SELECT`.
@@ -282,5 +284,4 @@ cd demo
 - Pagination is offset-based: very deep pages get slower, and items created while paging can shift later pages.
 - No authentication or authorization; the Swagger UI is open. Out of scope for this project.
 - Deletion is physical (hard delete).
-- Planned: database `CHECK` constraints.
 - The Docker image is built in CI but not published to a registry yet.
