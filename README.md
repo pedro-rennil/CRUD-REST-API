@@ -12,6 +12,8 @@ well-layered, tested and production-minded backend rather than a large feature s
 - **Optimistic locking** (`@Version`) so concurrent updates are detected instead of silently overwritten.
 - **Standard error format** using RFC 7807 `ProblemDetail`.
 - **Interactive documentation** with OpenAPI / Swagger UI.
+- **Security-conscious defaults**: patched dependencies, request-size limits, security headers, loopback-only
+  Compose ports, a hardened `prod` profile and automated dependency updates (see [Security](#security)).
 - **Containerized**: a multi-stage `Dockerfile` (JRE-only image, non-root user) and a Compose profile that runs
   the API together with its database.
 - **Continuous integration**: GitHub Actions builds and runs every test, and checks that the Docker image builds.
@@ -97,6 +99,8 @@ Override them with environment variables when needed:
 | `DB_NAME`     | compose         | `productdb`                                  |
 | `DB_PORT`     | compose (host port) | `5434`                                   |
 | `APP_PORT`    | compose (host port of the `app` profile) | `8080`              |
+| `BIND_ADDRESS` | compose (host interface for published ports) | `127.0.0.1`    |
+| `SPRING_PROFILES_ACTIVE` | application, compose | none (`prod` hardens the deployment) |
 
 If you change `DB_PORT` or `DB_NAME` while running the API outside Docker, update `DB_URL` accordingly.
 (The `app` profile builds `DB_URL` for you.)
@@ -153,7 +157,8 @@ curl "http://localhost:8080/api/v1/products?page=0&size=10&sortBy=price&directio
 - The order is deterministic: ties on the chosen field are broken by `id`, so consecutive pages never repeat
   or skip a product.
 - Asking for a page beyond the last one is not an error; it returns an empty `content` with the real totals.
-- Invalid parameters return `400` and report every problem at once (see [Errors](#errors)).
+- Invalid parameters return `400` and report every problem at once (see [Errors](#errors)). `page * size` must
+  not exceed 2,147,483,647 (the database offset is a 32-bit integer).
 - The parameters, their bounds, defaults and allowed values are part of the generated OpenAPI document
   (`/v3/api-docs`), so generated clients and Swagger UI present them accurately.
 
@@ -278,10 +283,29 @@ cd demo
 2. **Docker image builds**: `docker build` of `demo/Dockerfile`, so the image cannot silently break. Nothing is
    published.
 
+## Security
+
+A security review (secret scan, STRIDE threat model, dependency/image scan and hands-on attacks against a running
+container) led to these measures:
+
+| Area | Measure |
+|------|---------|
+| Dependencies | Tomcat and Jackson are pinned above the versions managed by Spring Boot 4.1.1 to include security fixes (see the comment in [`pom.xml`](demo/pom.xml); remove the overrides once Boot catches up). The image scans clean (0 critical, 0 high, 0 medium) with Docker Scout. [Dependabot](.github/dependabot.yml) opens weekly PRs for Maven, Docker and GitHub Actions. |
+| Input | SQL injection is not possible: queries are parameterized and `sortBy`/`direction` are checked against an allow-list. NUL characters (which PostgreSQL cannot store) and page offsets that overflow a 32-bit integer return `400` instead of `500`. |
+| Denial of service | JSON bodies are limited (64 KB document, 10,000-character strings, small nesting depth) through Jackson's stream constraints, so oversized requests are aborted without being buffered in memory. Page size is capped at 100. |
+| Responses | `X-Content-Type-Options: nosniff` and `Referrer-Policy` everywhere; a restrictive CSP plus `X-Frame-Options: DENY` on `/api/**`. Error bodies never include stack traces or parser messages. Only `health` and `info` actuator endpoints are exposed. |
+| Deployment | Compose publishes ports on `127.0.0.1` only (`BIND_ADDRESS` changes that). The container runs as a non-root user. `SPRING_PROFILES_ACTIVE=prod` disables Swagger UI and the OpenAPI document and hides error details. |
+| Secrets | None are committed; the only default is the local development database password (`product`), overridable through environment variables. |
+
+**What is deliberately not covered** (needed before exposing the API publicly): authentication and authorization,
+rate limiting, TLS (terminate it at a reverse proxy, which should also set `Strict-Transport-Security`), and a
+least-privilege database user for the running application (it currently owns the schema, which Flyway needs).
+
 ## Known limitations and roadmap
 
 - Listing supports ordering but no filtering or free-text search yet.
 - Pagination is offset-based: very deep pages get slower, and items created while paging can shift later pages.
-- No authentication or authorization; the Swagger UI is open. Out of scope for this project.
+- No authentication, authorization or rate limiting; the Swagger UI is open unless the `prod` profile is active.
+  Out of scope for this project (see [Security](#security)).
 - Deletion is physical (hard delete).
 - The Docker image is built in CI but not published to a registry yet.
