@@ -1,7 +1,7 @@
 package com.example.demo.domain.repository;
 
 import com.example.demo.domain.model.Product;
-import java.util.List;
+import com.example.demo.domain.pagination.Page;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -14,7 +14,10 @@ public interface ProductRepository {
 
     Optional<Product> findById(UUID id);
 
-    List<Product> findAll();
+    /**
+     * Loads one page of products. Ordering is deterministic: ties on the requested field are broken by id.
+     */
+    Page<Product> findAll(ProductPageQuery query);
 
     boolean existsById(UUID id);
 

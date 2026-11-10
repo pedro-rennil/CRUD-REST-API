@@ -1,5 +1,6 @@
 package com.example.demo.presentation.controller;
 
+import com.example.demo.application.dto.PageResponseDTO;
 import com.example.demo.application.dto.ProductRequestDTO;
 import com.example.demo.application.dto.ProductResponseDTO;
 import com.example.demo.application.usecase.CreateProductUseCase;
@@ -7,14 +8,17 @@ import com.example.demo.application.usecase.DeleteProductUseCase;
 import com.example.demo.application.usecase.GetProductUseCase;
 import com.example.demo.application.usecase.ListProductsUseCase;
 import com.example.demo.application.usecase.UpdateProductUseCase;
+import com.example.demo.domain.repository.ProductPageQuery;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.net.URI;
-import java.util.List;
 import java.util.UUID;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,6 +27,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
@@ -72,11 +77,32 @@ public class ProductController {
         return ResponseEntity.ok(getProductUseCase.getById(id));
     }
 
-    @Operation(summary = "List all products")
-    @ApiResponse(responseCode = "200", description = "List of products")
+    @Operation(
+            summary = "List products",
+            description = "Returns one page of products. Results are ordered by `sortBy` and `direction`; "
+                    + "ties are broken by id so consecutive pages never overlap. "
+                    + "A page beyond the last one is not an error: it returns an empty `content` with the real totals.")
+    @ApiResponse(responseCode = "200", description = "Page of products")
+    @ApiResponse(responseCode = "400", description = "Invalid pagination or sort parameters",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     @GetMapping
-    public ResponseEntity<List<ProductResponseDTO>> listProducts() {
-        return ResponseEntity.ok(listProductsUseCase.list());
+    public ResponseEntity<PageResponseDTO<ProductResponseDTO>> listProducts(
+            @Parameter(description = "Zero-based page index",
+                    schema = @Schema(type = "integer", format = "int32", minimum = "0", defaultValue = ProductListQueryParser.DEFAULT_PAGE))
+            @RequestParam(defaultValue = ProductListQueryParser.DEFAULT_PAGE) int page,
+            @Parameter(description = "Number of products per page",
+                    schema = @Schema(type = "integer", format = "int32", minimum = "1", maximum = ProductListQueryParser.MAX_SIZE_VALUE, defaultValue = ProductListQueryParser.DEFAULT_SIZE))
+            @RequestParam(defaultValue = ProductListQueryParser.DEFAULT_SIZE) int size,
+            @Parameter(description = "Property to order by",
+                    schema = @Schema(type = "string", allowableValues = {"name", "price", "stockQuantity", "createdAt"},
+                            defaultValue = ProductListQueryParser.DEFAULT_SORT_BY))
+            @RequestParam(defaultValue = ProductListQueryParser.DEFAULT_SORT_BY) String sortBy,
+            @Parameter(description = "Sort direction",
+                    schema = @Schema(type = "string", allowableValues = {"asc", "desc"},
+                            defaultValue = ProductListQueryParser.DEFAULT_DIRECTION))
+            @RequestParam(defaultValue = ProductListQueryParser.DEFAULT_DIRECTION) String direction) {
+        ProductPageQuery query = ProductListQueryParser.parse(page, size, sortBy, direction);
+        return ResponseEntity.ok(listProductsUseCase.list(query));
     }
 
     @Operation(summary = "Replace a product")

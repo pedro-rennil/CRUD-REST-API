@@ -1,7 +1,10 @@
 package com.example.demo.presentation.controller;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -11,6 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.example.demo.application.dto.PageResponseDTO;
 import com.example.demo.application.dto.ProductResponseDTO;
 import com.example.demo.application.usecase.CreateProductUseCase;
 import com.example.demo.application.usecase.DeleteProductUseCase;
@@ -18,11 +22,16 @@ import com.example.demo.application.usecase.GetProductUseCase;
 import com.example.demo.application.usecase.ListProductsUseCase;
 import com.example.demo.application.usecase.UpdateProductUseCase;
 import com.example.demo.domain.exception.ProductNotFoundException;
+import com.example.demo.domain.pagination.SortDirection;
+import com.example.demo.domain.repository.ProductPageQuery;
+import com.example.demo.domain.repository.ProductSortField;
 import com.example.demo.presentation.exception.GlobalExceptionHandler;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.http.MediaType;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -111,6 +120,77 @@ class ProductControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Laptop\",\"price\":10.00,\"stockQuantity\":1}"))
                 .andExpect(status().isConflict());
+    }
+
+    @Test
+    void shouldListFirstPageSortedByCreationDateWhenNoParametersAreGiven() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(list.list(any())).thenReturn(new PageResponseDTO<>(
+                List.of(new ProductResponseDTO(id, "Laptop", null, new BigDecimal("10.00"), 1, Instant.now())),
+                0, 20, 1, 1));
+
+        mockMvc.perform(get("/api/v1/products"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(id.toString()))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1));
+
+        ArgumentCaptor<ProductPageQuery> captor = ArgumentCaptor.forClass(ProductPageQuery.class);
+        verify(list).list(captor.capture());
+        assertEquals(new ProductPageQuery(0, 20, ProductSortField.CREATED_AT, SortDirection.ASC), captor.getValue());
+    }
+
+    @Test
+    void shouldPassPaginationAndSortingParametersToTheUseCase() throws Exception {
+        when(list.list(any())).thenReturn(new PageResponseDTO<>(List.of(), 2, 5, 0, 0));
+
+        mockMvc.perform(get("/api/v1/products")
+                        .param("page", "2").param("size", "5")
+                        .param("sortBy", "stockQuantity").param("direction", "DESC"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<ProductPageQuery> captor = ArgumentCaptor.forClass(ProductPageQuery.class);
+        verify(list).list(captor.capture());
+        assertEquals(new ProductPageQuery(2, 5, ProductSortField.STOCK_QUANTITY, SortDirection.DESC), captor.getValue());
+    }
+
+    @Test
+    void shouldAcceptMaximumPageSize() throws Exception {
+        when(list.list(any())).thenReturn(new PageResponseDTO<>(List.of(), 0, 100, 0, 0));
+
+        mockMvc.perform(get("/api/v1/products").param("size", "100"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void shouldReturn400ListingAllInvalidQueryParameters() throws Exception {
+        mockMvc.perform(get("/api/v1/products")
+                        .param("page", "-1").param("size", "101")
+                        .param("sortBy", "color").param("direction", "up"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.length()").value(4))
+                .andExpect(jsonPath("$.errors[0]").value(org.hamcrest.Matchers.startsWith("page:")))
+                .andExpect(jsonPath("$.errors[1]").value(org.hamcrest.Matchers.startsWith("size:")))
+                .andExpect(jsonPath("$.errors[2]").value(org.hamcrest.Matchers.startsWith("sortBy:")))
+                .andExpect(jsonPath("$.errors[3]").value(org.hamcrest.Matchers.startsWith("direction:")));
+
+        verifyNoInteractions(list);
+    }
+
+    @Test
+    void shouldReturn400WhenSizeIsZero() throws Exception {
+        mockMvc.perform(get("/api/v1/products").param("size", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0]").value(org.hamcrest.Matchers.startsWith("size:")));
+    }
+
+    @Test
+    void shouldReturn400WhenPaginationParameterIsNotANumber() throws Exception {
+        mockMvc.perform(get("/api/v1/products").param("page", "abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0]").value("page: has an invalid value"));
     }
 
     @Test

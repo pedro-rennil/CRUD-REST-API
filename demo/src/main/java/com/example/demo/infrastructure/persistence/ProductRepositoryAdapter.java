@@ -1,11 +1,17 @@
 package com.example.demo.infrastructure.persistence;
 
 import com.example.demo.domain.model.Product;
+import com.example.demo.domain.pagination.Page;
+import com.example.demo.domain.pagination.SortDirection;
+import com.example.demo.domain.repository.ProductPageQuery;
 import com.example.demo.domain.repository.ProductRepository;
+import com.example.demo.domain.repository.ProductSortField;
 import com.example.demo.infrastructure.persistence.entity.ProductEntity;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -30,8 +36,34 @@ public class ProductRepositoryAdapter implements ProductRepository {
     }
 
     @Override
-    public List<Product> findAll() {
-        return repository.findAll().stream().map(this::toDomain).toList();
+    public Page<Product> findAll(ProductPageQuery query) {
+        Pageable pageable = PageRequest.of(query.page(), query.size(), toSort(query));
+        var result = repository.findAll(pageable);
+
+        return new Page<>(
+                result.getContent().stream().map(this::toDomain).toList(),
+                query.page(),
+                query.size(),
+                result.getTotalElements());
+    }
+
+    /**
+     * Orders by the requested field and always by id afterwards: without a unique tie-breaker the
+     * database may return rows with equal values in a different order per query, so consecutive pages
+     * could repeat or skip items.
+     */
+    private Sort toSort(ProductPageQuery query) {
+        Sort.Direction direction = query.direction() == SortDirection.ASC ? Sort.Direction.ASC : Sort.Direction.DESC;
+        return Sort.by(direction, toProperty(query.sortField())).and(Sort.by(Sort.Direction.ASC, "id"));
+    }
+
+    private String toProperty(ProductSortField field) {
+        return switch (field) {
+            case NAME -> "name";
+            case PRICE -> "price";
+            case STOCK_QUANTITY -> "stockQuantity";
+            case CREATED_AT -> "createdAt";
+        };
     }
 
     @Override

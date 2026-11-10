@@ -1,5 +1,6 @@
 package com.example.demo.application.service;
 
+import com.example.demo.application.dto.PageResponseDTO;
 import com.example.demo.application.dto.ProductRequestDTO;
 import com.example.demo.application.dto.ProductResponseDTO;
 import com.example.demo.application.usecase.CreateProductUseCase;
@@ -9,8 +10,8 @@ import com.example.demo.application.usecase.ListProductsUseCase;
 import com.example.demo.application.usecase.UpdateProductUseCase;
 import com.example.demo.domain.exception.ProductNotFoundException;
 import com.example.demo.domain.model.Product;
+import com.example.demo.domain.repository.ProductPageQuery;
 import com.example.demo.domain.repository.ProductRepository;
-import java.util.List;
 import java.util.UUID;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,10 +50,8 @@ public class ProductServiceImpl implements CreateProductUseCase, GetProductUseCa
 
     @Override
     @Transactional(readOnly = true)
-    public List<ProductResponseDTO> list() {
-        return productRepository.findAll().stream()
-                .map(this::toResponse)
-                .toList();
+    public PageResponseDTO<ProductResponseDTO> list(ProductPageQuery query) {
+        return PageResponseDTO.from(productRepository.findAll(query).map(this::toResponse));
     }
 
     @Override

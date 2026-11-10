@@ -8,11 +8,16 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.example.demo.application.dto.PageResponseDTO;
 import com.example.demo.application.dto.ProductRequestDTO;
 import com.example.demo.application.dto.ProductResponseDTO;
 import com.example.demo.domain.exception.ProductNotFoundException;
 import com.example.demo.domain.model.Product;
+import com.example.demo.domain.pagination.Page;
+import com.example.demo.domain.pagination.SortDirection;
+import com.example.demo.domain.repository.ProductPageQuery;
 import com.example.demo.domain.repository.ProductRepository;
+import com.example.demo.domain.repository.ProductSortField;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
@@ -91,12 +96,31 @@ class ProductServiceImplTest {
     }
 
     @Test
-    void shouldListAllProducts() {
-        when(productRepository.findAll()).thenReturn(List.of(existingProduct(), existingProduct()));
+    void shouldListProductsPageKeepingPaginationMetadata() {
+        ProductPageQuery query = new ProductPageQuery(1, 2, ProductSortField.PRICE, SortDirection.DESC);
+        Product first = existingProduct();
+        Product second = existingProduct();
+        when(productRepository.findAll(query)).thenReturn(new Page<>(List.of(first, second), 1, 2, 5));
 
-        List<ProductResponseDTO> response = service.list();
+        PageResponseDTO<ProductResponseDTO> response = service.list(query);
 
+        assertEquals(List.of(first.getId(), second.getId()), response.content().stream().map(ProductResponseDTO::id).toList());
+        assertEquals(1, response.page());
         assertEquals(2, response.size());
+        assertEquals(5, response.totalElements());
+        assertEquals(3, response.totalPages());
+    }
+
+    @Test
+    void shouldListEmptyPage() {
+        ProductPageQuery query = new ProductPageQuery(0, 20, ProductSortField.CREATED_AT, SortDirection.ASC);
+        when(productRepository.findAll(query)).thenReturn(new Page<>(List.of(), 0, 20, 0));
+
+        PageResponseDTO<ProductResponseDTO> response = service.list(query);
+
+        assertEquals(0, response.content().size());
+        assertEquals(0, response.totalElements());
+        assertEquals(0, response.totalPages());
     }
 
     @Test

@@ -1,9 +1,10 @@
 package com.example.demo.application.usecase;
 
+import com.example.demo.application.dto.PageResponseDTO;
 import com.example.demo.application.dto.ProductResponseDTO;
-import java.util.List;
+import com.example.demo.domain.repository.ProductPageQuery;
 
 public interface ListProductsUseCase {
 
-    List<ProductResponseDTO> list();
+    PageResponseDTO<ProductResponseDTO> list(ProductPageQuery query);
 }
