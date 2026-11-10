@@ -37,6 +37,21 @@ class ProductTest {
     }
 
     @Test
+    void shouldRejectNulCharactersInNameAndDescription() {
+        assertThrows(IllegalArgumentException.class,
+                () -> Product.create("a" + (char) 0 + "b", null, new BigDecimal("10.00"), 1));
+        assertThrows(IllegalArgumentException.class,
+                () -> Product.create("Laptop", "x" + (char) 0, new BigDecimal("10.00"), 1));
+    }
+
+    @Test
+    void shouldAcceptOtherControlCharactersAndUnicode() {
+        Product product = Product.create("Café\n\tnaïve 日本語 🚀", "line1\nline2", new BigDecimal("10.00"), 1);
+
+        assertEquals("Café\n\tnaïve 日本語 🚀", product.getName());
+    }
+
+    @Test
     void shouldRejectNonPositivePrice() {
         assertThrows(IllegalArgumentException.class,
                 () -> Product.create("Laptop", null, BigDecimal.ZERO, 1));

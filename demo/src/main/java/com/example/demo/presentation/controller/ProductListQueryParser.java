@@ -44,6 +44,10 @@ final class ProductListQueryParser {
             errors.add("size: must be between 1 and " + MAX_SIZE);
         }
 
+        if (page >= 0 && size >= 1 && size <= MAX_SIZE && (long) page * size > Integer.MAX_VALUE) {
+            errors.add("page: too large for the requested size (page * size must not exceed " + Integer.MAX_VALUE + ")");
+        }
+
         ProductSortField sortField = SORT_FIELDS.get(sortBy);
         if (sortField == null) {
             errors.add("sortBy: must be one of " + String.join(", ", SORT_FIELDS.keySet().stream().sorted().toList()));

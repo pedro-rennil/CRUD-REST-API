@@ -20,6 +20,10 @@ public record ProductPageQuery(int page, int size, ProductSortField sortField, S
         if (size < 1) {
             throw new IllegalArgumentException("size must be greater than zero");
         }
+        if ((long) page * size > Integer.MAX_VALUE) {
+            // The persistence layer addresses rows with an int offset; larger values used to end in a 500.
+            throw new IllegalArgumentException("page offset (page * size) must not exceed " + Integer.MAX_VALUE);
+        }
         Objects.requireNonNull(sortField, "sortField must not be null");
         Objects.requireNonNull(direction, "direction must not be null");
     }

@@ -50,4 +50,19 @@ class PageTest {
         assertThrows(NullPointerException.class,
                 () -> new ProductPageQuery(0, 10, ProductSortField.NAME, null));
     }
+
+    @Test
+    void shouldRejectPageOffsetsBeyondIntegerRange() {
+        // 2147483647 * 100 does not fit in an int offset; this used to end in a 500 from the persistence layer.
+        assertThrows(IllegalArgumentException.class,
+                () -> new ProductPageQuery(Integer.MAX_VALUE, 100, ProductSortField.NAME, SortDirection.ASC));
+        assertThrows(IllegalArgumentException.class,
+                () -> new ProductPageQuery(Integer.MAX_VALUE / 100 + 1, 100, ProductSortField.NAME, SortDirection.ASC));
+    }
+
+    @Test
+    void shouldAcceptTheLargestOffsetThatFitsAnInt() {
+        new ProductPageQuery(Integer.MAX_VALUE, 1, ProductSortField.NAME, SortDirection.ASC);
+        new ProductPageQuery(Integer.MAX_VALUE / 100, 100, ProductSortField.NAME, SortDirection.ASC);
+    }
 }

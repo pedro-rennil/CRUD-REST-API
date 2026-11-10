@@ -13,6 +13,18 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
+  jackson:
+    factory:
+      constraints:
+        read:
+          # A valid product request is well under 1 KB. Without limits the whole body of any request was
+          # read into memory before being rejected (e.g. five 15 MB bodies grew the heap by ~600 MB),
+          # which makes denial of service trivial. Oversized or deeply nested JSON now fails fast with a 400.
+          max-document-length: 65536
+          max-string-length: 10000
+          max-number-length: 100
+          max-nesting-depth: 20
+          max-token-count: 1000
 
 springdoc:
   swagger-ui:

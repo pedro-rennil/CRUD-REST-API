@@ -104,6 +104,73 @@ class ProductApiIT {
     }
 
     @Test
+    void shouldRejectNulCharactersInsteadOfFailingWithA500() throws Exception {
+        // Found by a security scan: PostgreSQL cannot store NUL, so this used to be an internal server error.
+        HttpResponse<String> response = send("POST", "/api/v1/products",
+                "{\"name\":\"a\\u0000b\",\"price\":1.00,\"stockQuantity\":1}");
+
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(json(response).read("$.errors[0]", String.class)).startsWith("name:");
+    }
+
+    @Test
+    void shouldRejectPageOffsetsThatOverflowAnIntInsteadOfFailingWithA500() throws Exception {
+        HttpResponse<String> response = send("GET", "/api/v1/products?page=2147483647&size=100", null);
+
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(json(response).read("$.errors[0]", String.class)).startsWith("page:");
+    }
+
+    @Test
+    void shouldRejectBodiesAboveTheJsonSizeLimitWith400() throws Exception {
+        // The limit is 64 KB (spring.jackson.factory.constraints.read.max-document-length); a product needs < 1 KB.
+        String oversizedName = "a".repeat(200 * 1024);
+
+        HttpResponse<String> response = send("POST", "/api/v1/products",
+                "{\"name\":\"" + oversizedName + "\",\"price\":1.00,\"stockQuantity\":1}");
+
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.headers().firstValue("Content-Type").orElse("")).contains("application/problem+json");
+        assertThat(response.body()).doesNotContain("aaaa");
+    }
+
+    @Test
+    void shouldAbortHugeBodiesEarlyAndStayHealthy() throws Exception {
+        // 5 MB is far beyond the limit: the server stops reading at the limit and may close the connection while
+        // the client is still sending, so the client sees either the 400 or a reset. Either way nothing is
+        // buffered or stored, and the API must keep working.
+        String hugeName = "a".repeat(5 * 1024 * 1024);
+        try {
+            HttpResponse<String> response = send("POST", "/api/v1/products",
+                    "{\"name\":\"" + hugeName + "\",\"price\":1.00,\"stockQuantity\":1}");
+            assertThat(response.statusCode()).isEqualTo(400);
+        } catch (IOException connectionClosedByServer) {
+            // acceptable: the server rejected the upload by closing the connection
+        }
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM products", Integer.class)).isZero();
+        assertThat(send("GET", "/actuator/health", null).statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void shouldSendSecurityHeaders() throws Exception {
+        HttpResponse<String> response = send("GET", "/api/v1/products", null);
+
+        assertThat(response.headers().firstValue("X-Content-Type-Options")).hasValue("nosniff");
+        assertThat(response.headers().firstValue("X-Frame-Options")).hasValue("DENY");
+        assertThat(response.headers().firstValue("Content-Security-Policy"))
+                .hasValue("default-src 'none'; frame-ancestors 'none'");
+        assertThat(response.headers().firstValue("Referrer-Policy")).hasValue("no-referrer");
+    }
+
+    @Test
+    void shouldKeepSensitiveActuatorEndpointsClosed() throws Exception {
+        for (String path : List.of("/actuator/env", "/actuator/beans", "/actuator/heapdump", "/actuator/mappings")) {
+            assertThat(send("GET", path, null).statusCode()).as(path).isEqualTo(404);
+        }
+    }
+
+    @Test
     void shouldUpdateAndDeleteThroughTheTransactionalService() throws Exception {
         String id = createProduct("Laptop", 10);
 

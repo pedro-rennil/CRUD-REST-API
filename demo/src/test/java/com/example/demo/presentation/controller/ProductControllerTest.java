@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -177,6 +178,37 @@ class ProductControllerTest {
                 .andExpect(jsonPath("$.errors[3]").value(org.hamcrest.Matchers.startsWith("direction:")));
 
         verifyNoInteractions(list);
+    }
+
+    @Test
+    void shouldReturn400WhenPageOffsetOverflowsAnInt() throws Exception {
+        mockMvc.perform(get("/api/v1/products").param("page", "2147483647").param("size", "100"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0]").value(org.hamcrest.Matchers.startsWith("page:")));
+
+        verifyNoInteractions(list);
+    }
+
+    @Test
+    void shouldReturn400WhenNameOrDescriptionContainNulCharacters() throws Exception {
+        // The JSON escape for NUL reaches the controller as a real NUL character after Jackson decodes it.
+        mockMvc.perform(post("/api/v1/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"a\\u0000b\",\"description\":\"x\\u0000\",\"price\":1.00,\"stockQuantity\":1}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.length()").value(2));
+
+        verifyNoInteractions(create);
+    }
+
+    @Test
+    void shouldReturnProblemDetailWhenBodyIsMalformedWithoutEchoingTheParserMessage() throws Exception {
+        mockMvc.perform(post("/api/v1/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\": SECRET-VALUE"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Malformed or unreadable request body"))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("SECRET-VALUE"))));
     }
 
     @Test

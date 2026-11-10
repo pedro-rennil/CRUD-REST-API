@@ -18,7 +18,7 @@ public final class Product {
     private final Long version;
 
     private Product(UUID id, String name, String description, BigDecimal price, int stockQuantity, Instant createdAt, Long version) {
-        validate(name, price, stockQuantity);
+        validate(name, description, price, stockQuantity);
         this.id = Objects.requireNonNull(id, "id must not be null");
         this.name = name;
         this.description = description;
@@ -53,9 +53,13 @@ public final class Product {
         return new Product(this.id, name, description, price, stockQuantity, this.createdAt, this.version);
     }
 
-    private static void validate(String name, BigDecimal price, int stockQuantity) {
+    private static void validate(String name, String description, BigDecimal price, int stockQuantity) {
         if (name == null || name.isBlank()) {
             throw new IllegalArgumentException("name must not be blank");
+        }
+        // PostgreSQL cannot store NUL in text columns; reject it here instead of failing later with a 500.
+        if (containsNul(name) || (description != null && containsNul(description))) {
+            throw new IllegalArgumentException("name and description must not contain NUL characters");
         }
         if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
             throw new IllegalArgumentException("price must be greater than zero");
@@ -63,6 +67,10 @@ public final class Product {
         if (stockQuantity < 0) {
             throw new IllegalArgumentException("stockQuantity must be greater than or equal to zero");
         }
+    }
+
+    private static boolean containsNul(String text) {
+        return text.indexOf('\u0000') >= 0;
     }
 
     public UUID getId() {

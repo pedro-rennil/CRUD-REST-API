@@ -5,12 +5,17 @@ import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 
 public record ProductRequestDTO(
-        @NotBlank(message = "Name is required") @Size(max = 255, message = "Name must have at most 255 characters") String name,
-        @Size(max = 255, message = "Description must have at most 255 characters") String description,
+        @NotBlank(message = "Name is required")
+        @Size(max = 255, message = "Name must have at most 255 characters")
+        // PostgreSQL cannot store the NUL character in text columns, which used to surface as a 500.
+        @Pattern(regexp = "[^\\u0000]*", message = "Name must not contain NUL characters") String name,
+        @Size(max = 255, message = "Description must have at most 255 characters")
+        @Pattern(regexp = "[^\\u0000]*", message = "Description must not contain NUL characters") String description,
         // Matches the NUMERIC(19,2) column: anything wider would fail at the database with a 500.
         @NotNull(message = "Price is required")
         @DecimalMin(value = "0.0", inclusive = false, message = "Price must be greater than zero")
