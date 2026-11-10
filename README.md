@@ -12,6 +12,9 @@ well-layered, tested and production-minded backend rather than a large feature s
 - **Optimistic locking** (`@Version`) so concurrent updates are detected instead of silently overwritten.
 - **Standard error format** using RFC 7807 `ProblemDetail`.
 - **Interactive documentation** with OpenAPI / Swagger UI.
+- **Containerized**: a multi-stage `Dockerfile` (JRE-only image, non-root user) and a Compose profile that runs
+  the API together with its database.
+- **Continuous integration**: GitHub Actions builds and runs every test, and checks that the Docker image builds.
 - **Layered test suite**: domain and service unit tests, controller tests, persistence integration tests and
   end-to-end HTTP tests running against a real PostgreSQL via **Testcontainers**.
 
@@ -25,6 +28,7 @@ well-layered, tested and production-minded backend rather than a large feature s
 | API docs      | springdoc-openapi (Swagger UI)               |
 | Tests         | JUnit 5, Mockito, MockMvc, Testcontainers    |
 | Build         | Maven (wrapper included)                     |
+| Packaging/CI  | Docker (multi-stage), Docker Compose, GitHub Actions |
 
 ## Getting started
 
@@ -49,6 +53,29 @@ docker compose up -d
 
 On Windows use `mvnw.cmd` instead of `./mvnw`. Flyway creates the schema automatically on startup.
 
+### Run everything in containers
+
+To run the API itself in a container (no JDK needed), enable the `app` profile. Compose builds the image from
+[`demo/Dockerfile`](demo/Dockerfile), waits for the database to be healthy and starts the API on port 8080:
+
+```bash
+cd demo
+docker compose --profile app up --build
+```
+
+A plain `docker compose up` starts only the database, which is what you want when running the API from your
+IDE or with `./mvnw spring-boot:run`. Stop and remove the containers with `docker compose --profile app down`
+(add `-v` to also delete the database volume).
+
+The image can also be built and run on its own; point it at any PostgreSQL with the variables below:
+
+```bash
+docker build -t product-api demo
+docker run --rm -p 8080:8080 \
+  -e DB_URL=jdbc:postgresql://host.docker.internal:5434/productdb \
+  product-api
+```
+
 Once running:
 
 | URL                                           | Description          |
@@ -69,8 +96,10 @@ Override them with environment variables when needed:
 | `DB_PASSWORD` | application, compose | `product`                               |
 | `DB_NAME`     | compose         | `productdb`                                  |
 | `DB_PORT`     | compose (host port) | `5434`                                   |
+| `APP_PORT`    | compose (host port of the `app` profile) | `8080`              |
 
-If you change `DB_PORT` or `DB_NAME`, update `DB_URL` accordingly.
+If you change `DB_PORT` or `DB_NAME` while running the API outside Docker, update `DB_URL` accordingly.
+(The `app` profile builds `DB_URL` for you.)
 
 ## API
 
@@ -156,11 +185,10 @@ Errors follow RFC 7807 (`application/problem+json`). A validation failure lists 
 
 ```json
 {
-  "type": "about:blank",
-  "title": "Bad Request",
-  "status": 400,
   "detail": "Validation failed",
   "instance": "/api/v1/products",
+  "status": 400,
+  "title": "Bad Request",
   "errors": ["name: Name is required", "price: Price must be greater than zero"]
 }
 ```
@@ -239,10 +267,20 @@ cd demo
 | Integration | Persistence adapter, Flyway migrations, optimistic locking, paging and sorting | `@DataJpaTest`, Testcontainers (`*IT`, run by Failsafe) |
 | End-to-end  | Full application over HTTP: CRUD, pagination, error format, OpenAPI document | `@SpringBootTest` (random port), Testcontainers |
 
+### Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to `main` and on every pull request:
+
+1. **Build and test**: JDK 25, `./mvnw -B verify` (unit, integration and end-to-end tests; Testcontainers uses the
+   Docker available on GitHub-hosted runners). Test reports are uploaded as an artifact when the build fails.
+2. **Docker image builds**: `docker build` of `demo/Dockerfile`, so the image cannot silently break. Nothing is
+   published.
+
 ## Known limitations and roadmap
 
 - Listing supports ordering but no filtering or free-text search yet.
 - Pagination is offset-based: very deep pages get slower, and items created while paging can shift later pages.
 - No authentication or authorization; the Swagger UI is open. Out of scope for this project.
 - Deletion is physical (hard delete).
-- Planned: database `CHECK` constraints, a Dockerfile and a CI pipeline.
+- Planned: database `CHECK` constraints.
+- The Docker image is built in CI but not published to a registry yet.
