@@ -290,7 +290,7 @@ container) led to these measures:
 
 | Area | Measure |
 |------|---------|
-| Dependencies | Tomcat and Jackson are pinned above the versions managed by Spring Boot 4.1.1 to include security fixes (see the comment in [`pom.xml`](demo/pom.xml); remove the overrides once Boot catches up). The image scans clean (0 critical, 0 high, 0 medium) with Docker Scout. [Dependabot](.github/dependabot.yml) opens weekly PRs for Maven, Docker and GitHub Actions. |
+| Dependencies | Spring Boot 4.1.2 manages patched Tomcat and Jackson versions, so no version overrides are needed. The image scans clean (0 vulnerabilities at any severity) with Docker Scout. [Dependabot](.github/dependabot.yml) opens weekly PRs for Maven, Docker and GitHub Actions; if a security fix is ever needed before Boot ships it, override the managed property (`tomcat.version`, `jackson-bom.version`) temporarily and remove it once Boot catches up, because an override also blocks newer managed versions. |
 | Input | SQL injection is not possible: queries are parameterized and `sortBy`/`direction` are checked against an allow-list. NUL characters (which PostgreSQL cannot store) and page offsets that overflow a 32-bit integer return `400` instead of `500`. |
 | Denial of service | JSON bodies are limited (64 KB document, 10,000-character strings, small nesting depth) through Jackson's stream constraints, so oversized requests are aborted without being buffered in memory. Page size is capped at 100. |
 | Responses | `X-Content-Type-Options: nosniff` and `Referrer-Policy` everywhere; a restrictive CSP plus `X-Frame-Options: DENY` on `/api/**`. Error bodies never include stack traces or parser messages. Only `health` and `info` actuator endpoints are exposed. |
