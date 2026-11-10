@@ -8,11 +8,12 @@ well-layered, tested and production-minded backend rather than a large feature s
 
 - **Clean Architecture** with a framework-free domain, use-case interfaces and persistence hidden behind a port.
 - **PostgreSQL** schema versioned with **Flyway** and validated by Hibernate (`ddl-auto: validate`).
+- **Paginated and sortable listing** with a stable order, documented parameter by parameter in OpenAPI.
 - **Optimistic locking** (`@Version`) so concurrent updates are detected instead of silently overwritten.
 - **Standard error format** using RFC 7807 `ProblemDetail`.
 - **Interactive documentation** with OpenAPI / Swagger UI.
-- **Layered test suite**: domain and service unit tests, controller tests and persistence integration tests
-  running against a real PostgreSQL via **Testcontainers**.
+- **Layered test suite**: domain and service unit tests, controller tests, persistence integration tests and
+  end-to-end HTTP tests running against a real PostgreSQL via **Testcontainers**.
 
 ## Tech stack
 
@@ -78,7 +79,7 @@ Base path: `/api/v1/products`
 | Method   | Path    | Description                | Success                    | Errors   |
 |----------|---------|----------------------------|----------------------------|----------|
 | `POST`   | `/`     | Create a product           | `201` + `Location` header  | `400`    |
-| `GET`    | `/`     | List all products          | `200`                      |          |
+| `GET`    | `/`     | List products (paginated)  | `200`                      | `400`    |
 | `GET`    | `/{id}` | Get a product by id        | `200`                      | `404`    |
 | `PUT`    | `/{id}` | Replace a product          | `200`                      | `400` `404` `409` |
 | `DELETE` | `/{id}` | Delete a product           | `204`                      | `404`    |
@@ -91,6 +92,41 @@ Base path: `/api/v1/products`
 | `description`   | string  | optional, at most 255 characters                           |
 | `price`         | decimal | required, greater than zero, up to 17 integer digits and 2 decimal places |
 | `stockQuantity` | integer | required, zero or greater                                  |
+
+### Listing: pagination and sorting
+
+`GET /api/v1/products` returns one page at a time. All parameters are optional.
+
+| Parameter   | Type    | Default     | Allowed values                                  |
+|-------------|---------|-------------|-------------------------------------------------|
+| `page`      | integer | `0`         | zero or greater (zero-based page index)         |
+| `size`      | integer | `20`        | 1 to 100                                        |
+| `sortBy`    | string  | `createdAt` | `name`, `price`, `stockQuantity`, `createdAt`   |
+| `direction` | string  | `asc`       | `asc`, `desc` (case-insensitive)                |
+
+```bash
+curl "http://localhost:8080/api/v1/products?page=0&size=10&sortBy=price&direction=desc"
+```
+
+```json
+{
+  "content": [
+    { "id": "3f1c2a9e-7b64-4d0e-9a53-1c8f0e2d4b77", "name": "Laptop", "description": "Gaming laptop",
+      "price": 1499.99, "stockQuantity": 10, "createdAt": "2026-01-15T10:15:30.123456Z" }
+  ],
+  "page": 0,
+  "size": 10,
+  "totalElements": 42,
+  "totalPages": 5
+}
+```
+
+- The order is deterministic: ties on the chosen field are broken by `id`, so consecutive pages never repeat
+  or skip a product.
+- Asking for a page beyond the last one is not an error; it returns an empty `content` with the real totals.
+- Invalid parameters return `400` and report every problem at once (see [Errors](#errors)).
+- The parameters, their bounds, defaults and allowed values are part of the generated OpenAPI document
+  (`/v3/api-docs`), so generated clients and Swagger UI present them accurately.
 
 ### Example
 
@@ -131,7 +167,7 @@ Errors follow RFC 7807 (`application/problem+json`). A validation failure lists 
 
 | Status | When                                                                        |
 |--------|-----------------------------------------------------------------------------|
-| `400`  | Invalid request body or a domain rule was violated                          |
+| `400`  | Invalid request body or query parameters, or a domain rule was violated     |
 | `404`  | The product does not exist                                                  |
 | `409`  | The product was modified by another request while being updated; reload it and retry |
 
@@ -149,17 +185,18 @@ presentation ──▶ application ──▶ domain ◀── infrastructure
 demo/src/main/java/com/example/demo
 ├── domain
 │   ├── model/           Product (immutable, validates its own invariants)
-│   ├── repository/      ProductRepository (port)
+│   ├── pagination/      Page, SortDirection
+│   ├── repository/      ProductRepository (port), ProductPageQuery, ProductSortField
 │   └── exception/       ProductNotFoundException
 ├── application
 │   ├── usecase/         One interface per operation (Create, Get, List, Update, Delete)
 │   ├── service/         ProductServiceImpl implements every use case
-│   └── dto/             Request / response records
+│   └── dto/             Request / response records, PageResponseDTO
 ├── infrastructure
 │   ├── persistence/     ProductRepositoryAdapter, Spring Data repository, JPA entity
 │   └── config/          Bean wiring and OpenAPI configuration
 └── presentation
-    ├── controller/      ProductController
+    ├── controller/      ProductController, ProductListQueryParser
     └── exception/       GlobalExceptionHandler (ProblemDetail)
 ```
 
@@ -175,6 +212,10 @@ demo/src/main/java/com/example/demo
 - **One transaction per use case.** `ProductServiceImpl` is `@Transactional` (read-only for queries), making
   read-then-write operations atomic. This is a deliberate trade-off: the application layer uses Spring's
   annotation instead of a separate transactional decorator.
+- **Pagination without framework types in the core.** The domain defines its own `Page` and `ProductPageQuery`;
+  only the infrastructure adapter translates them to Spring Data. The query-string vocabulary
+  (`sortBy=stockQuantity`) is parsed in the presentation layer, so renaming a database column never changes the
+  public API.
 - **Timestamps truncated to microseconds**, the precision PostgreSQL stores, so the value returned on creation
   equals what is read back later.
 - **Schema as code.** Flyway owns the schema and Hibernate only validates it; `open-in-view` is disabled.
@@ -195,12 +236,13 @@ cd demo
 |-------------|----------------------------------------------------------------|------------------------------|
 | Unit        | `Product` rules, use-case behaviour                            | JUnit 5, Mockito             |
 | Web         | Status codes, validation, error format, `Location` header     | MockMvc (standalone)         |
-| Integration | Persistence adapter, Flyway migrations, optimistic locking     | `@DataJpaTest`, Testcontainers (`*IT`, run by Failsafe) |
+| Integration | Persistence adapter, Flyway migrations, optimistic locking, paging and sorting | `@DataJpaTest`, Testcontainers (`*IT`, run by Failsafe) |
+| End-to-end  | Full application over HTTP: CRUD, pagination, error format, OpenAPI document | `@SpringBootTest` (random port), Testcontainers |
 
 ## Known limitations and roadmap
 
-- Listing is not paginated yet (`GET /api/v1/products` returns every product).
+- Listing supports ordering but no filtering or free-text search yet.
+- Pagination is offset-based: very deep pages get slower, and items created while paging can shift later pages.
 - No authentication or authorization; the Swagger UI is open. Out of scope for this project.
 - Deletion is physical (hard delete).
-- Planned: pagination, database `CHECK` constraints, an end-to-end test of the full application, a Dockerfile
-  and a CI pipeline.
+- Planned: database `CHECK` constraints, a Dockerfile and a CI pipeline.
