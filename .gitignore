@@ -1,0 +1,6 @@
+# Local Claude Code tooling (preview/launch config); not part of the project
+.claude/
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: productdb
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-productdb}
+      POSTGRES_USER: ${DB_USERNAME:-product}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-product}
+    ports:
+      - "${DB_PORT:-5434}:5432"
+    volumes:
+      - product_data:/var/lib/postgresql/data
+
+volumes:
+  product_data:
