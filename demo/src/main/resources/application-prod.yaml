@@ -1,0 +1,17 @@
+# Activated with SPRING_PROFILES_ACTIVE=prod (or --spring.profiles.active=prod).
+# Hardening for a deployed instance; local development keeps the defaults in application.yaml.
+
+springdoc:
+  # Do not advertise the API surface publicly: no Swagger UI and no generated OpenAPI document.
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+server:
+  error:
+    # Never put exception messages, binding errors or stack traces in the default error body.
+    include-message: never
+    include-binding-errors: never
+    include-stacktrace: never
+    include-exception: false

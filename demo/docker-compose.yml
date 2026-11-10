@@ -34,6 +34,8 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-productdb}
       DB_USERNAME: ${DB_USERNAME:-product}
       DB_PASSWORD: ${DB_PASSWORD:-product}
+      # Set to `prod` to disable Swagger UI / OpenAPI and hide error details.
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
     ports:
       # Loopback by default because the API has no authentication (see BIND_ADDRESS above).
       - "${BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8080}:8080"
