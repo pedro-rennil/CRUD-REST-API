@@ -11,6 +11,29 @@ services:
       - "${DB_PORT:-5434}:5432"
     volumes:
       - product_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-product} -d ${DB_NAME:-productdb}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Optional: the API itself, built from the Dockerfile. Not started by a plain `docker compose up`
+  # (use `docker compose --profile app up --build`) so that running the API from the IDE or with
+  # `./mvnw spring-boot:run` against the database above keeps working.
+  app:
+    profiles: ["app"]
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Inside the compose network the database is reachable by service name on its container port.
+      DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-productdb}
+      DB_USERNAME: ${DB_USERNAME:-product}
+      DB_PASSWORD: ${DB_PASSWORD:-product}
+    ports:
+      - "${APP_PORT:-8080}:8080"
 
 volumes:
   product_data:

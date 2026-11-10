@@ -1,0 +1,17 @@
+# Keep the build context small and the cache stable: only the pom, wrapper and sources are needed.
+target/
+.git/
+.gitignore
+.gitattributes
+HELP.md
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+.classpath
+.project
+.settings/
